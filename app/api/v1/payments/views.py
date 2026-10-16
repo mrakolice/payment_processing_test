@@ -1,69 +1,69 @@
 import fastapi
+import sqlalchemy as sa
+import sqlalchemy.exc as sa_exceptions
 
 from app import dependencies
 from app.api.v1.payments import responses
 from app.core import models
-import sqlalchemy as sa
-import sqlalchemy.exc as sa_exceptions
 
 router = fastapi.APIRouter(prefix="/payments", tags=["payments"])
 
 
-@router.post('/')
+@router.post('/', status_code=202)
 async def create_payment(
         session: dependencies.DBSession,
         request: models.Payment,
         idempotency_key: dependencies.StrHeader,
         x_api_key: dependencies.StrHeader,
 ):
+    if x_api_key is None:
+        return fastapi.Response(status_code=403)
+
+    if idempotency_key is None:
+        return fastapi.Response(status_code=400, content="IDEMPOTENCY KEY is required")
+
+    existing_payment = (await session.execute(
+        sa.select(models.Payment).where(models.Payment.idempotency_key == idempotency_key)
+    )).scalars().one_or_none()
+
+    if existing_payment is not None:
+
+        return responses.NewPaymentResponse.model_validate(existing_payment)
+
+    request.id = None
+    request.idempotency_key = idempotency_key
+
     try:
-        if x_api_key is None:
-            return fastapi.Response(status_code=403)
-
-        if idempotency_key is None:
-            return fastapi.Response(status_code=400, content="IDEMPOTENCY KEY is required")
-
-        _existing_payment = await session.execute(
+        session.add(request)
+        await session.flush()  #
+        session.add(models.Outbox(payload={'id': request.id}))
+        await session.commit()
+    except sa_exceptions.IntegrityError:
+        await session.rollback()
+        existing_payment = (await session.execute(
             sa.select(models.Payment).where(models.Payment.idempotency_key == idempotency_key)
-        )
-        existing_payment = _existing_payment.scalars().one()
-
-        result = existing_payment
-
-        if existing_payment is None:
-            request.idempotency_key = idempotency_key
-            outbox = models.Outbox(
-                payment=request,
-            )
-            session.add(request)
-            session.add(outbox)
-            session.commit()
-
-            result = request
-
-        return fastapi.Response(status_code=202, content=responses.NewPaymentResponse.model_validate(result))
-
+        )).scalars().one()
+        return responses.NewPaymentResponse.model_validate(existing_payment)
     except sa_exceptions.DatabaseError:
-        return fastapi.Response(status_code=400, )
+        await session.rollback()
+        return fastapi.Response(status_code=400)
+
+    return responses.NewPaymentResponse.model_validate(request)
 
 
-@router.get('/{payment_id')
+@router.get('/{payment_id}')
 async def get_payment(
         session: dependencies.DBSession,
-        payment_id: str,
+        payment_id: int,
 ):
     try:
-        if idempotency_key is None:
-            return fastapi.Response(status_code=400, content="IDEMPOTENCY KEY is required")
-
-        _payment = await session.execute(sa.select(models.Payment, models.Payment.id == payment_id))
-
-        result = _payment.scalars().one()
-
-        if result is None:
-            return fastapi.Response(status_code=404)
-
-        return result
-
+        payment = (await session.execute(
+            sa.select(models.Payment).where(models.Payment.id == payment_id)
+        )).scalars().one_or_none()
     except sa_exceptions.DatabaseError:
-        return fastapi.Response(status_code=400, )
+        return fastapi.Response(status_code=400)
+
+    if payment is None:
+        return fastapi.Response(status_code=404)
+
+    return payment

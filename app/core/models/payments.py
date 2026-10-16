@@ -18,8 +18,8 @@ class Payment(sqlmodel.SQLModel, table=True):
     )
     description: str = sqlmodel.Field(sa_type=sqlmodel.Text, nullable=True)
     meta: str = sqlmodel.Field(sa_type=sqlmodel.JSON, nullable=True)
-    status: enums.PaymentStatus = sqlmodel.Field(enums.PaymentStatus.PENDING, sa_type=sqlmodel.Text, nullable=False)
-    idempotency_key: str = sqlmodel.Field(sa_type=sqlmodel.Text, nullable=False)
+    status: enums.PaymentStatus = sqlmodel.Field(default=enums.PaymentStatus.PENDING, sa_type=sqlmodel.Text, nullable=False)
+    idempotency_key: str = sqlmodel.Field(sa_type=sqlmodel.Text, nullable=False, unique=True)
     webhook_url: str = sqlmodel.Field(sa_type=sqlmodel.Text, nullable=False)
     created_at: datetime.datetime = sqlmodel.Field(
         sa_type=sqlmodel.DateTime, nullable=False, default_factory=lambda: datetime.datetime.now(),
@@ -33,13 +33,9 @@ class Payment(sqlmodel.SQLModel, table=True):
 class Outbox(sqlmodel.SQLModel, table=True):
     __tablename__ = 'outbox'
     id: int = sqlmodel.Field(sa_type=sqlmodel.Integer, primary_key=True)
-
-    payment: Payment = sqlmodel.Field(Payment)
+    payload: dict = sqlmodel.Field(sa_type=sqlmodel.JSON, nullable=False)
     created_at: datetime.datetime = sqlmodel.Field(
         sa_type=sqlmodel.DateTime, nullable=False, default_factory=lambda: datetime.datetime.now(),
         sa_column_kwargs={"server_default": sqlalchemy.func.now()}
     )
-    published_at: datetime.datetime = sqlmodel.Field(
-        sa_type=sqlmodel.DateTime, nullable=False, default_factory=lambda: datetime.datetime.now(),
-        sa_column_kwargs={"server_default": sqlalchemy.func.now()}
-    )
+    published_at: datetime.datetime = sqlmodel.Field(sa_type=sqlmodel.DateTime, nullable=True)
