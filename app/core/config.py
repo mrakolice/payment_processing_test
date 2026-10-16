@@ -54,5 +54,5 @@ class Config(pydantic_settings.BaseSettings):
         env_nested_delimiter='__',
     )
 
-env_file = pathlib.Path(__file__).parent.parent.joinpath(f'.env')
+env_file = pathlib.Path(__file__).parent.parent.parent.joinpath(f'.env')
 settings = Config(_env_file=env_file)

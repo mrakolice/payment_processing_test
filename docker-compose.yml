@@ -1,0 +1,117 @@
+# Миграции накатываются автоматически сервисом migrate, вручную — `make migrate-docker`.
+
+name: payment-processing
+
+x-env: &env
+  env_file:
+    - path: ${ENV_FILE:-./.env}
+      required: true
+
+x-app: &app
+  <<: *env
+  restart: unless-stopped
+  build:
+    context: .
+    dockerfile: Dockerfile
+  # DATABASE__HOST/RABBITMQ__HOST в .env — "localhost" (для запуска без
+  # докера); внутри docker-сети сервисы видны по именам контейнеров.
+  environment:
+    DATABASE__HOST: postgres
+    RABBITMQ__HOST: rabbitmq
+
+services:
+  postgres:
+    <<: *env
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      # Официальный образ поднимает суперпользователя "postgres" с этим паролем;
+      # нашу базу/роль из .env создаёт system_sql/database_init.sql при первом старте.
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DATABASE__PASSWORD}
+      POSTGRES_DB: postgres
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./system_sql/database_init.sql:/system_sql/database_init.sql:ro
+      - ./system_sql/init-db.sh:/docker-entrypoint-initdb.d/10-init-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${DATABASE__USER} -d $${DATABASE__NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5433:${DATABASE__PORT}"
+
+  rabbitmq:
+    <<: *env
+    image: rabbitmq:4-management-alpine
+    restart: unless-stopped
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    ports:
+      - "15673:15672"
+
+  # Разовый прогон миграций alembic. api/consumer стартуют только после его
+  # успешного завершения — так миграции накатываются один раз, а не в двух
+  # контейнерах параллельно.
+  migrate:
+    <<: *app
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+
+  api:
+    <<: *app
+    environment:
+      DATABASE__HOST: postgres
+      RABBITMQ__HOST: rabbitmq
+      # uvicorn внутри контейнера должен слушать все интерфейсы, иначе проброс
+      # портов с хоста не достучится до приложения.
+      SERVER__LISTEN_ADDRESS: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "-m", "app.web_app"]
+    ports:
+      - "8000:${SERVER__PORT}"
+
+  outbox:
+    <<: *app
+    environment:
+      DATABASE__HOST: postgres
+      RABBITMQ__HOST: rabbitmq
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: [ "python", "-m", "app.outbox_app" ]
+
+
+  consumer:
+    <<: *app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: ["faststream", "run", "app.consumer_app:app"]
+
+volumes:
+  pg_data:
+  rabbitmq_data:

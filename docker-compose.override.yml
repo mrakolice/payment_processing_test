@@ -1,0 +1,24 @@
+# без этого файла (для прода)
+# docker compose -f docker-compose.yml up -d --build
+
+services:
+  migrate:
+    # Чтобы миграции, сгенерированные локально (uv run alembic revision
+    # --autogenerate), подхватывались без ребилда образа.
+    volumes:
+      - ./migrations:/app/migrations:ro
+
+  api:
+    volumes:
+      - ./app:/app/app:ro
+    command: ["sh", "-c", "uvicorn app.web_app:app --host \"$$SERVER__LISTEN_ADDRESS\" --port \"$$SERVER__PORT\" --reload --reload-dir /app/app"]
+
+  consumer:
+    volumes:
+      - ./app:/app/app:ro
+    command: ["faststream", "run", "app.consumer_app:app", "--reload"]
+
+  outbox:
+    volumes:
+      - ./app:/app/app:ro
+    command: ["watchfiles", "python -m app.outbox_app", "/app/app"]
