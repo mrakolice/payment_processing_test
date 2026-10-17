@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import logging
 import random
 
@@ -54,6 +55,7 @@ async def _process_payment(payment: Payment, session: AsyncSession) -> None:
 
     succeeded = random.random() < 0.9  # 90% успех, 10% ошибка
     payment.status = enums.PaymentStatus.SUCCEEDED if succeeded else enums.PaymentStatus.FAILED
+    payment.processed_at = datetime.datetime.now()
     session.add(payment)
     await session.commit()
 

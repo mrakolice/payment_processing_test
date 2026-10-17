@@ -43,6 +43,7 @@ class ServerSettings(pydantic_settings.BaseSettings):
     listen_address: str
     port: int
     allowed_origins: list[str]
+    api_key: str
 
 class Config(pydantic_settings.BaseSettings):
     database: DatabaseSettings

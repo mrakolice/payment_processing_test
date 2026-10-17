@@ -30,6 +30,7 @@ def upgrade() -> None:
     )
     op.create_table('payments',
     sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('amount', sa.Numeric(12, 2), nullable=False),
     sa.Column('currency', sa.Text(), server_default='RUB', nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('meta', sa.JSON(), nullable=True),
@@ -38,6 +39,7 @@ def upgrade() -> None:
     sa.Column('webhook_url', sa.Text(), nullable=False),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('processed_at', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('idempotency_key')
     )

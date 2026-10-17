@@ -15,7 +15,10 @@ tests:
 ifndef $(test_dir)
 	$(eval test_dir=app/tests)
 endif
-	.venv/bin/pytest -v $(test_dir)
+	.venv/bin/pytest -v $(test_dir) $(args)
+
+tests-fast:
+	make tests args="-m 'not slow'"
 
 pre-push:
 	make lint imports=true
